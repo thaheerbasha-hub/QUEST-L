@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+*.egg-info/
+
+# Streamlit secrets & credentials
+**/.streamlit/secrets.toml
+**/.streamlit/firebase_key.json
+**/.streamlit/firebase_web_api_key.txt
+**/.streamlit/remember_secret.txt
+secrets.toml
+firebase_key.json
+firebase_web_api_key.txt
+remember_secret.txt
+
+# User data & local ide configs
+**/users/
+users/
+**/.claude/
+.claude/
+**/.vscode/
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+portfolio_risk_analysis.ipynb
+
+# Scratch / one-off scripts
+_append_michael.py
+fix_may6.py
+fix_charts.py
+check_prices.py
+test_bulk.py
+test_gemini.py
+live_monitor.py
+
+# Caches and runtime logs
+**/price_cache.json
+**/nse_holidays.json
+price_cache.json
+nse_holidays.json
+*.tmp
+*.log
+*.zip
+desktop.ini
+.DS_Store
+Thumbs.db

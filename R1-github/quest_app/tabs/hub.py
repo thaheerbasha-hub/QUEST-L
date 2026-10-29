@@ -1,0 +1,326 @@
+import streamlit as st
+import edu_db
+from risk_analyzer import load_holdings, analyze_portfolio
+from portfolio_ledger import HOLDINGS_FILE, get_transactions
+from datetime import datetime
+import pytz
+
+def _get_relative_time(timestamp_str):
+    if not timestamp_str:
+        return "Live"
+    try:
+        dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        now = datetime.now(dt.tzinfo or pytz.UTC)
+        diff = now - dt
+        seconds = int(diff.total_seconds())
+        if seconds < 60:
+            return "Just now"
+        elif seconds < 3600:
+            return f"{seconds // 60}m ago"
+        elif seconds < 86400:
+            return f"{seconds // 3600}h ago"
+        else:
+            return f"{seconds // 86400}d ago"
+    except Exception:
+        return "Live"
+
+def render(user_info):
+    display_name = user_info.get("display_name", "Thaneer Basha")
+    
+    # ── Real Games & Education Data ───────────────────────────────────────────
+    progress = edu_db.load_progress()
+    total_xp = int(progress.get("total_xp", 0))
+    virtual_balance = float(progress.get("virtual_balance", 15000.0))
+    completed_articles = progress.get("completed_articles", [])
+    badges = progress.get("badges", [])
+    
+    lvl_info = edu_db.get_level_info(total_xp)
+    cur_lvl_num = lvl_info.get("level_number", 1)
+    next_xp = lvl_info.get("next_xp", 350) or 350
+    min_xp = lvl_info.get("min_xp", 0)
+    progress_pct = lvl_info.get("progress_pct", 0.0)
+    
+    # Achievements from actual completed lessons or badges
+    completed_count = len(completed_articles)
+    achievements_count = f"{completed_count} / 100" if completed_count > 0 else f"{len(badges)} / 10"
+
+    # ── Real Professional Portfolio Data ──────────────────────────────────────
+    try:
+        holdings = load_holdings(HOLDINGS_FILE)
+    except Exception:
+        holdings = []
+    
+    holdings_count = len(holdings)
+    
+    try:
+        transactions = get_transactions()
+    except Exception:
+        transactions = []
+    
+    # Live Last Updated from latest transaction
+    if transactions:
+        last_tx_time = transactions[-1].get("timestamp", "")
+        last_updated_txt = _get_relative_time(last_tx_time)
+    else:
+        last_updated_txt = "Live"
+
+    # Live Alerts & Warnings
+    try:
+        analysis = analyze_portfolio(holdings)
+        alerts_count = len(analysis.get("warnings", [])) + len(analysis.get("recommendations", []))
+    except Exception:
+        alerts_count = 0
+
+    markets_count = holdings_count
+    watchlist_count = holdings_count
+
+    st.markdown("""<style>
+[data-testid="stSidebar"] { display: none !important; }
+.stApp {
+    background-color: var(--q-bg) !important;
+    color: var(--q-text) !important;
+}
+.hub-hero { text-align: center; padding-top: 1.8rem; padding-bottom: 1.2rem; }
+.hub-hero-welcome { font-size: 1.25rem; font-weight: 500; color: var(--q-text-2); margin-bottom: 0.25rem; letter-spacing: -0.2px; }
+.hub-hero-title {
+    font-size: 3.4rem; font-weight: 800; letter-spacing: -1px;
+    background: linear-gradient(135deg, #a5f3fc 0%, #93c5fd 30%, #c084fc 70%, #f472b6 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    margin: 0 0 0.4rem 0; line-height: 1.15;
+}
+.hub-hero-sub { font-size: 1.05rem; color: var(--q-text-3); font-weight: 400; margin-bottom: 1.5rem; }
+.hub-card-box {
+    background: var(--q-surface);
+    border: 1px solid var(--q-border); border-radius: 20px;
+    padding: 1.6rem 1.6rem 1.4rem 1.6rem;
+    box-shadow: 0 12px 35px -8px rgba(0, 0, 0, 0.45);
+    transition: all 0.28s ease; position: relative; height: 100%;
+    display: flex; flex-direction: column; justify-content: space-between;
+}
+.hub-card-box:hover {
+    border-color: var(--q-border-2);
+    transform: translateY(-2px);
+}
+.hub-card-box.edu-theme { border-color: var(--q-border); }
+.hub-card-box.edu-theme:hover {
+    border-color: var(--q-border-2);
+}
+.hub-card-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.2rem; }
+.hub-card-header-left { display: flex; align-items: center; gap: 14px; }
+.hub-card-icon {
+    width: 44px; height: 44px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.3rem;
+}
+.hub-card-icon.prof {
+    background: var(--q-accent-weak);
+    border: 1px solid var(--q-border-2);
+}
+.hub-card-icon.edu {
+    background: var(--q-accent-weak);
+    border: 1px solid var(--q-border-2);
+}
+.hub-card-title { font-size: 1.25rem; font-weight: 700; color: var(--q-text); margin: 0 0 2px 0; letter-spacing: -0.3px; }
+.hub-card-subtitle { font-size: 0.82rem; color: var(--q-text-2); margin: 0; }
+.hub-card-arrow-btn {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: var(--q-surface-2); border: 1px solid var(--q-border);
+    display: flex; align-items: center; justify-content: center; color: var(--q-text-2); font-size: 0.9rem;
+}
+.hub-featured-box {
+    background: var(--q-surface-2); border: 1px solid var(--q-border);
+    border-radius: 14px; padding: 1.2rem; margin-bottom: 1.2rem;
+    display: flex; align-items: center; justify-content: space-between; position: relative; overflow: hidden;
+}
+.hub-stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 1.2rem; }
+.hub-stat-grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; margin-bottom: 1.2rem; }
+.hub-mini-stat {
+    background: var(--q-surface-2); border: 1px solid var(--q-border);
+    border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+}
+.hub-mini-stat-label { font-size: 0.68rem; color: var(--q-text-3); font-weight: 500; text-transform: uppercase; letter-spacing: 0.4px; }
+.hub-mini-stat-val { font-size: 1rem; font-weight: 700; color: var(--q-text); }
+div[data-testid="stColumn"]:nth-of-type(1) div.stButton > button[kind="primary"] {
+    background: var(--q-accent) !important;
+    color: var(--q-surface) !important; border: none !important; border-radius: 12px !important;
+    font-weight: 600 !important; font-size: 1rem !important; height: 48px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important; transition: all 0.25s ease !important;
+}
+div[data-testid="stColumn"]:nth-of-type(1) div.stButton > button[kind="primary"]:hover {
+    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.35) !important; transform: translateY(-1px) !important;
+}
+div[data-testid="stColumn"]:nth-of-type(2) div.stButton > button[kind="primary"] {
+    background: var(--q-accent) !important;
+    color: var(--q-surface) !important; border: none !important; border-radius: 12px !important;
+    font-weight: 600 !important; font-size: 1rem !important; height: 48px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important; transition: all 0.25s ease !important;
+}
+div[data-testid="stColumn"]:nth-of-type(2) div.stButton > button[kind="primary"]:hover {
+    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.35) !important; transform: translateY(-1px) !important;
+}
+</style>""", unsafe_allow_html=True)
+
+    # 1. Header Hero
+    st.markdown(f"""<div class="hub-hero">
+<div class="hub-hero-welcome">Welcome back,</div>
+<h1 class="hub-hero-title">{display_name}.</h1>
+<div class="hub-hero-sub">Pick up where you left off and keep leveling up. 🚀</div>
+</div>""", unsafe_allow_html=True)
+
+    # 2. Pill Navigation Bar (Interactive Quick Actions)
+    p_spacer_l, p1, p2, p3, p4, p_spacer_r = st.columns([1.2, 1, 1, 1.1, 1, 1.2])
+    with p1:
+        if st.button("📊  Analytics", key="hub_pill_analytics", use_container_width=True):
+            st.query_params["workspace"] = "professional"
+            st.query_params["page"] = "Analytics"
+            st.rerun()
+    with p2:
+        if st.button("📈  Progress", key="hub_pill_progress", use_container_width=True):
+            st.query_params["workspace"] = "education"
+            st.query_params["page"] = "Learning Path"
+            st.rerun()
+    with p3:
+        if st.button("🏆  Achievements", key="hub_pill_achievements", use_container_width=True):
+            st.query_params["workspace"] = "education"
+            st.query_params["page"] = "Badges"
+            st.rerun()
+    with p4:
+        if st.button("🎯  Goals", key="hub_pill_goals", use_container_width=True):
+            st.query_params["workspace"] = "professional"
+            st.query_params["page"] = "Planner"
+            st.rerun()
+
+    st.markdown("<div style='margin-bottom: 1.5rem;'></div>", unsafe_allow_html=True)
+
+    # 3. Two Main Hub Cards
+    card_col1, card_col2 = st.columns(2, gap="large")
+
+    # ── Left Card: Professional Portfolio ─────────────────────────────────────
+    with card_col1:
+        svg_growth_chart = '<svg width="150" height="90" viewBox="0 0 150 90" fill="none" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="barGrad1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#4c1d95"/></linearGradient><linearGradient id="barGrad2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#6d28d9"/></linearGradient><linearGradient id="barGrad3" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#c084fc"/><stop offset="100%" stop-color="#7c3aed"/></linearGradient><linearGradient id="arrowGrad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#a855f7"/><stop offset="100%" stop-color="#e879f9"/></linearGradient><filter id="glowEffect" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3" result="blur"/><feComposite in="SourceGraphic" in2="blur" operator="over"/></filter></defs><rect x="25" y="60" width="14" height="24" rx="3" fill="url(#barGrad1)" /><rect x="45" y="48" width="14" height="36" rx="3" fill="url(#barGrad1)" /><rect x="65" y="38" width="14" height="46" rx="3" fill="url(#barGrad2)" /><rect x="85" y="26" width="14" height="58" rx="3" fill="url(#barGrad2)" /><rect x="105" y="14" width="14" height="70" rx="3" fill="url(#barGrad3)" /><path d="M15 68 Q 50 54 80 32 T 128 10" fill="none" stroke="url(#arrowGrad)" stroke-width="3.5" stroke-linecap="round" filter="url(#glowEffect)"/><polygon points="122,8 136,8 132,22" fill="#e879f9" filter="url(#glowEffect)"/></svg>'
+
+        html_prof_card = f"""<div class="hub-card-box">
+<div>
+<div class="hub-card-top">
+<div class="hub-card-header-left">
+<div class="hub-card-icon prof">💼</div>
+<div>
+<div class="hub-card-title">Professional Portfolio</div>
+<div class="hub-card-subtitle">Track markets. Analyze risk. Grow your wealth.</div>
+</div>
+</div>
+<div class="hub-card-arrow-btn">↗</div>
+</div>
+<div class="hub-featured-box">
+<div>
+<div style="font-size:0.75rem;color:var(--q-text-3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">STATUS</div>
+<div style="font-size:1.35rem;font-weight:700;color:var(--q-accent);margin-bottom:8px;">Active Environment</div>
+<div style="display:inline-flex;align-items:center;gap:6px;background:var(--q-pos-weak);border:1px solid var(--q-pos);border-radius:999px;padding:3px 10px;">
+<div style="width:7px;height:7px;border-radius:50%;background:var(--q-pos);box-shadow:0 0 8px var(--q-pos);"></div>
+<span style="font-size:0.75rem;font-weight:600;color:var(--q-pos);">All systems operational</span>
+</div>
+</div>
+<div>{svg_growth_chart}</div>
+</div>
+<div class="hub-stat-grid">
+<div class="hub-mini-stat">
+<span style="font-size:1.1rem;color:var(--q-accent);">📊</span>
+<div>
+<div class="hub-mini-stat-label">Markets Tracked</div>
+<div class="hub-mini-stat-val">{markets_count}</div>
+</div>
+</div>
+<div class="hub-mini-stat">
+<span style="font-size:1.1rem;color:var(--q-accent);">⭐</span>
+<div>
+<div class="hub-mini-stat-label">Watchlist</div>
+<div class="hub-mini-stat-val">{watchlist_count}</div>
+</div>
+</div>
+<div class="hub-mini-stat">
+<span style="font-size:1.1rem;color:var(--q-neg);">🔔</span>
+<div>
+<div class="hub-mini-stat-label">Alerts</div>
+<div class="hub-mini-stat-val">{alerts_count}</div>
+</div>
+</div>
+<div class="hub-mini-stat">
+<span style="font-size:1.1rem;color:var(--q-accent);">⏱</span>
+<div>
+<div class="hub-mini-stat-label">Last Updated</div>
+<div class="hub-mini-stat-val" style="font-size:0.88rem;">{last_updated_txt}</div>
+</div>
+</div>
+</div>
+</div>
+</div>"""
+        st.markdown(html_prof_card, unsafe_allow_html=True)
+        
+        if st.button("Go to Portfolio →", key="hub_btn_go_portfolio", type="primary", use_container_width=True):
+            st.query_params["workspace"] = "professional"
+            st.query_params["page"] = edu_db.get_last_portfolio_section()
+            st.rerun()
+
+    # ── Right Card: Games & Education ─────────────────────────────────────────
+    with card_col2:
+        html_edu_card = f"""<div class="hub-card-box edu-theme">
+<div>
+<div class="hub-card-top">
+<div class="hub-card-header-left">
+<div class="hub-card-icon edu">🎓</div>
+<div>
+<div class="hub-card-title">Games & Education</div>
+<div class="hub-card-subtitle">Learn. Play. Achieve. Level up your skills.</div>
+</div>
+</div>
+<div class="hub-card-arrow-btn">↗</div>
+</div>
+<div class="hub-featured-box">
+<div style="flex:1;">
+<div style="display:flex;justify-content:space-between;align-items:flex-start;">
+<div>
+<div style="font-size:0.75rem;color:var(--q-text-3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">YOUR PROGRESS</div>
+<div style="font-size:1.35rem;font-weight:700;color:var(--q-warn);margin-bottom:6px;">⭐ {total_xp} XP</div>
+</div>
+<div style="text-align:right;">
+<div style="font-size:0.75rem;color:var(--q-text-3);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">UP NEXT</div>
+<div style="display:inline-flex;align-items:center;gap:6px;background:var(--q-accent-weak);border:1px solid var(--q-accent);border-radius:8px;padding:4px 10px;">
+<span style="color:var(--q-accent);font-size:0.75rem;">▶</span>
+<span style="font-size:0.85rem;font-weight:700;color:var(--q-text);">Level {cur_lvl_num}</span>
+</div>
+</div>
+</div>
+<div style="margin-top:12px;">
+<div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--q-text-3);font-weight:600;margin-bottom:4px;">
+<span>Progress</span>
+<span>{total_xp} / {next_xp} XP</span>
+</div>
+<div style="width:100%;height:6px;background:var(--q-border);border-radius:999px;overflow:hidden;">
+<div style="width:{min(100.0, max(5.0, progress_pct))}%;height:100%;background:var(--q-warn);border-radius:999px;"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="hub-stat-grid-2">
+<div class="hub-mini-stat">
+<span style="font-size:1.3rem;color:var(--q-pos);">💳</span>
+<div>
+<div class="hub-mini-stat-label">Virtual Trading Balance</div>
+<div class="hub-mini-stat-val" style="color:var(--q-pos);">₹ {virtual_balance:,.0f}</div>
+</div>
+</div>
+<div class="hub-mini-stat">
+<span style="font-size:1.3rem;color:var(--q-accent);">🏆</span>
+<div>
+<div class="hub-mini-stat-label">Achievements</div>
+<div class="hub-mini-stat-val">{achievements_count}</div>
+</div>
+</div>
+</div>
+</div>
+</div>"""
+        st.markdown(html_edu_card, unsafe_allow_html=True)
+
+        if st.button("Resume Learning →", key="hub_btn_go_education", type="primary", use_container_width=True):
+            st.query_params["workspace"] = "education"
+            st.query_params["page"] = edu_db.get_last_education_section()
+            st.rerun()
