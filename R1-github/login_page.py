@@ -1000,7 +1000,8 @@ def _render_login(login_user, save_remember_me):
                 "email": "demo@quest.local",
             }
             st.session_state.just_logged_in = True
-            st.query_params["page"] = "Overview"
+            st.query_params["workspace"] = "education"
+            st.query_params["page"] = "Learning Path"
             st.query_params.pop("return_to", None)
             st.rerun()
 

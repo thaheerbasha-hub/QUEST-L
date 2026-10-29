@@ -79,6 +79,7 @@ YOUR INSTRUCTIONS:
 4. If asked to quiz, ask 3 short, relevant multiple-choice questions with answers explained.
 5. If asked how to apply this, explain how they can practice it using the Virtual Trading simulator in QUEST (with their starting ₹15,000 balance).
 6. Keep formatting neat with clean bullet points and bold key terms. Never invent fake stock prices.
+7. STRICT GUARDRAIL & COMPLIANCE RULE: You are an educational tutor. Explain concepts, educational frameworks, and the lesson material. NEVER say what to buy or sell, never give buy, sell, or hold recommendations, and never provide stock tips, price targets, or entry/exit levels.
 """
 
     if api_key and provider == "groq":
@@ -107,7 +108,9 @@ YOUR INSTRUCTIONS:
             )
             with urllib.request.urlopen(req, timeout=25) as response:
                 res = json.loads(response.read().decode("utf-8"))
-                return res["choices"][0]["message"]["content"].strip()
+                ans = res["choices"][0]["message"]["content"].strip()
+                import guardrail
+                return guardrail.safe_reply(ans, user_context=v_module, api_key=api_key, provider=provider)
         except Exception as e:
             pass
 
@@ -127,14 +130,16 @@ YOUR INSTRUCTIONS:
             req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
             with urllib.request.urlopen(req, timeout=25) as response:
                 res = json.loads(response.read().decode("utf-8"))
-                return res["candidates"][0]["content"]["parts"][0]["text"].strip()
+                ans = res["candidates"][0]["content"]["parts"][0]["text"].strip()
+                import guardrail
+                return guardrail.safe_reply(ans, user_context=v_module, api_key=api_key, provider=provider)
         except Exception as e:
             pass
 
     # Intelligent Fallback Knowledge Engine (Context-Aware Offline Mode)
     q_low = query.lower()
     if "simple" in q_low or "explain" in q_low or "summary" in q_low:
-        return f"""**⚡ MICHAEL's Concept Breakdown for "{v_title}":**
+        raw_res = f"""**⚡ MICHAEL's Concept Breakdown for "{v_title}":**
 
 • **Core Big Picture**: {v_summary}
 • **Why it matters for you**: Understanding this allows you to avoid costly beginner traps in Indian markets and compound wealth steadily.
@@ -144,14 +149,14 @@ YOUR INSTRUCTIONS:
 *Pro Tip*: Try placing a mock order in your **Virtual Trading** tab to see how this works without risking real capital!"""
 
     elif "example" in q_low or "indian" in q_low or "market" in q_low:
-        return f"""**⚡ Real-World Indian Market Context:**
+        raw_res = f"""**⚡ Real-World Indian Market Context:**
 
 • **Relating to Nifty & BSE**: When creators like {v_creator} discuss `{v_title}`, they emphasize real market dynamics seen in leading index stocks (e.g. Reliance, TCS, HDFC Bank).
 • **Practical Scenario**: If you invest ₹1,000 monthly in an index fund yielding 12% CAGR, in 15 years you contribute ₹1.8 Lakhs, but your portfolio can grow to over ₹5 Lakhs due to compounding!
 • **Execution**: Keep your asset allocation balanced between large-cap stability, mid-cap growth, and emergency liquidity."""
 
     elif "quiz" in q_low:
-        return f"""**📝 Quick Practice Quiz on "{v_title}":**
+        raw_res = f"""**📝 Quick Practice Quiz on "{v_title}":**
 
 **Q1. What is the primary purpose taught by {v_creator} in this lesson?**
 a) To time the market every single hour
@@ -166,19 +171,22 @@ c) Never change anything for 50 years
 *Think you know the answers? Reply with your choice or ask me to verify!* 🎯"""
 
     elif "virtual" in q_low or "portfolio" in q_low or "balance" in q_low:
-        return f"""**💼 Applying this to your QUEST Virtual Portfolio:**
+        raw_res = f"""**💼 Applying this to your QUEST Virtual Portfolio:**
 
 1. **Test the thesis**: Go to the **Virtual Trading** tab in the sidebar.
 2. **Utilize your starting balance**: You have your paper trading balance ready. Pick 2-3 quality assets discussed in `{v_module}`.
-3. **Set your Stop Loss & Target**: Before confirming the trade, calculate your risk-to-reward ratio as taught in this lesson!"""
+3. **Practice risk management**: Before placing a virtual trade, calculate your risk-to-reward ratio and risk capacity as taught in this lesson!"""
 
     else:
-        return f"""**⚡ MICHAEL AI Tutor:**
+        raw_res = f"""**⚡ MICHAEL AI Tutor:**
 
 Regarding **"{query}"** in the context of *{v_title}* by {v_creator}:
 
 • In Indian equities and financial planning, this concept emphasizes {active_video.get('key_takeaways', ['discipline and risk control'])[0].lower()}.
 • **Next Action**: Review the key takeaways above, and feel free to ask me for definitions of any specific terms or how to practice this in Virtual Trading!"""
+
+    import guardrail
+    return guardrail.safe_reply(raw_res, user_context=v_module, api_key=api_key, provider=provider)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main Render Function
@@ -288,13 +296,18 @@ def render(user_info):
         st.session_state.edu_video_lang = "en"
     current_lang = st.session_state.edu_video_lang
 
-    module_titles = [mod.get("module_title", f"Module {i+1}") for i, mod in enumerate(catalog)]
+    # Demo mode: limit visible catalog to modules 1–3
+    _is_demo = (user_info.get("username") == "demo_guest")
+    _DEMO_MODULE_LIMIT = 3  # number of modules accessible in demo
+    visible_catalog = catalog[:_DEMO_MODULE_LIMIT] if _is_demo else catalog
+
+    module_titles = [mod.get("module_title", f"Module {i+1}") for i, mod in enumerate(visible_catalog)]
     mod_selector_key = f"edu_module_selector_{current_lang}"
 
     # 2. Check for navigation from other tabs (e.g. Learning Path / Hub)
     if "active_module_id" in st.session_state and st.session_state.active_module_id:
         target_mod_id = st.session_state.active_module_id
-        for idx, mod in enumerate(catalog):
+        for idx, mod in enumerate(visible_catalog):
             if mod.get("module_id") == target_mod_id or mod.get("level_id") == target_mod_id:
                 st.session_state.edu_active_module_idx = idx
                 st.session_state.edu_active_video_idx = 0
@@ -318,13 +331,15 @@ def render(user_info):
     if "edu_active_video_idx" not in st.session_state:
         st.session_state.edu_active_video_idx = 0
 
-    if st.session_state.edu_active_module_idx < 0 or st.session_state.edu_active_module_idx >= len(catalog):
+    # Clamp to visible catalog bounds (important for demo: prevents access to idx > 2)
+    _max_module_idx = len(visible_catalog) - 1
+    if st.session_state.edu_active_module_idx < 0 or st.session_state.edu_active_module_idx > _max_module_idx:
         st.session_state.edu_active_module_idx = 0
 
     # Keep selectbox state key in sync
     st.session_state[mod_selector_key] = module_titles[st.session_state.edu_active_module_idx]
 
-    cur_module = catalog[st.session_state.edu_active_module_idx]
+    cur_module = visible_catalog[st.session_state.edu_active_module_idx]
     cur_topics = cur_module.get("topics", [])
 
     if st.session_state.edu_active_video_idx < 0 or st.session_state.edu_active_video_idx >= len(cur_topics):
@@ -542,29 +557,30 @@ def render(user_info):
     # ──────────────────────────────────────────────────────────────────────────
     bar_col1, bar_col2 = st.columns([2.2, 1.8])
     
+    _vid_cnt_str = "30" if _is_demo else "100"
     with bar_col1:
         l_btn1, l_btn2 = st.columns(2)
         with l_btn1:
             is_en = current_lang == "en"
-            if st.button("🇬🇧  English (100 Videos)", key="btn_lang_en", type="primary" if is_en else "secondary", use_container_width=True):
+            if st.button(f"🇬🇧  English ({_vid_cnt_str} Videos)", key="btn_lang_en", type="primary" if is_en else "secondary", use_container_width=True):
                 if current_lang != "en":
                     st.session_state.edu_video_lang = "en"
                     st.session_state["edu_module_selector_en"] = module_titles[st.session_state.edu_active_module_idx]
                     st.rerun()
         with l_btn2:
             is_hi = current_lang == "hi"
-            if st.button("🇮🇳  हिन्दी / Hindi (100 Videos)", key="btn_lang_hi", type="primary" if is_hi else "secondary", use_container_width=True):
+            if st.button(f"🇮🇳  हिन्दी / Hindi ({_vid_cnt_str} Videos)", key="btn_lang_hi", type="primary" if is_hi else "secondary", use_container_width=True):
                 if current_lang != "hi":
                     st.session_state.edu_video_lang = "hi"
                     st.session_state["edu_module_selector_hi"] = module_titles[st.session_state.edu_active_module_idx]
                     st.rerun()
 
     with bar_col2:
-        search_kw = st.text_input("🔍 Search 100 Topics", placeholder="Search topics, creators, tags...", label_visibility="collapsed", key="search_topics_input")
+        search_kw = st.text_input(f"🔍 Search {_vid_cnt_str} Topics", placeholder="Search topics, creators, tags...", label_visibility="collapsed", key="search_topics_input")
 
     # ── Interactive Filter Toolbar (Level, Duration, Tag) ──
     _all_tags = set()
-    for _m in catalog:
+    for _m in visible_catalog:
         for _t in _m.get("topics", []):
             _v = _t.get(current_lang) or _t.get("en", {})
             _all_tags.update(_v.get("tags", []))
@@ -831,13 +847,17 @@ def render(user_info):
                     # When switching modules, reset to index 0 (first video of that module)
                     st.session_state.edu_active_video_idx = 0
 
+        _selectbox_help = "Demo: Modules 1–3 only. Sign up to unlock all 10." if _is_demo else None
         st.selectbox(
             "Filter Module",
             module_titles,
             key=mod_selector_key,
             on_change=_on_module_filter_change,
-            label_visibility="collapsed"
+            label_visibility="collapsed",
+            help=_selectbox_help,
         )
+        if _is_demo:
+            st.caption("🔒 Modules 4–10 available after sign up")
 
         # Check if any filter is active
         has_active_filter = (
@@ -875,7 +895,8 @@ def render(user_info):
 
         if has_active_filter:
             search_results = []
-            for m_i, mod in enumerate(catalog):
+            # Demo: only search within the visible (allowed) catalog slice
+            for m_i, mod in enumerate(visible_catalog):
                 for t_i, top in enumerate(mod.get("topics", [])):
                     v = top.get(current_lang) or top.get("en", {})
                     if _video_matches_filters(v, mod):

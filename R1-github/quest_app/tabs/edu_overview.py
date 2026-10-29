@@ -321,29 +321,31 @@ def render_dashboard(user_info):
     completed_levels = progress.get("completed_levels", [])
 
     lvl_info = edu_db.get_level_info(xp)
+    _is_demo = (user_info.get("username") == "demo_guest")
     all_quizzes = _load_all_quizzes()
     module_groups = _get_module_groups(all_quizzes)
+    active_groups = module_groups[:3] if _is_demo else module_groups
 
     # Count quizzes passed + modules fully cleared
     quizzes_passed = len(completed_levels)
     modules_cleared = 0
-    for grp in module_groups:
+    for grp in active_groups:
         sts = _get_quiz_statuses(grp["keys"], all_quizzes, completed_levels)
         if all(s["status"] == "passed" for s in sts):
             modules_cleared += 1
 
-    # Hero: find first uncompleted module
+    # Hero: find first uncompleted module (only modules 1-3 for demo)
     hero_module = None
     hero_next_quiz = None
-    for grp in module_groups:
+    for grp in active_groups:
         sts = _get_quiz_statuses(grp["keys"], all_quizzes, completed_levels)
         passed_count = sum(1 for s in sts if s["status"] == "passed")
         if passed_count < len(sts):
             hero_module = grp
             hero_next_quiz = next((s for s in sts if s["status"] == "available"), None)
             break
-    if not hero_module and module_groups:
-        hero_module = module_groups[0]
+    if not hero_module and active_groups:
+        hero_module = active_groups[0]
 
     hero_title = hero_next_quiz["video_title"] if hero_next_quiz else (hero_module["module_title"] if hero_module else "All Complete!")
     hero_mod_title = hero_module["module_title"] if hero_module else "All Modules"
@@ -499,26 +501,36 @@ def render_dashboard(user_info):
 </div>
 <div class="edu-metric-item">
 <div class="edu-metric-lbl">Videos Watched</div>
-<div class="edu-metric-num" style="color:var(--q-accent);">🎬 {videos_watched} / 100</div>
+<div class="edu-metric-num" style="color:var(--q-accent);">🎬 {videos_watched} / {30 if _is_demo else 100}</div>
 </div>
 <div class="edu-metric-item">
 <div class="edu-metric-lbl">Quizzes Passed</div>
-<div class="edu-metric-num" style="color:var(--q-accent);">🏅 {quizzes_passed} / 100</div>
+<div class="edu-metric-num" style="color:var(--q-accent);">🏅 {quizzes_passed} / {30 if _is_demo else 100}</div>
 </div>
 </div>
 <div style="display:flex;justify-content:space-between;font-size:0.74rem;color:var(--q-text-3);margin-top:16px;padding-top:12px;border-top:1px solid var(--q-border);">
 <span>Total XP: <strong style="color:var(--q-warn);">⭐ {xp:,} XP</strong></span>
-<span>Modules Cleared: <strong style="color:var(--q-accent);">{modules_cleared} / 10</strong></span>
+<span>Modules Cleared: <strong style="color:var(--q-accent);">{modules_cleared} / {3 if _is_demo else 10}</strong></span>
 <span>Level: <strong style="color:var(--q-text);">{lvl_info['level_name']}</strong></span>
 </div>
 </div>
 """), unsafe_allow_html=True)
 
     # ── Module Assessment Cards ──────────────────────────────────
-    st.markdown("<div class='q-section-title'><span>📝 Module Assessments</span><span style='font-size:0.8rem;color:var(--q-text-3);font-weight:500;'>10 Modules &bull; 100 Video Quizzes</span></div>", unsafe_allow_html=True)
+    # Demo mode: only show modules 1–3; render a locked teaser for the rest.
+    _is_demo = (user_info.get("username") == "demo_guest")
+    _demo_module_limit = 3  # modules visible in the demo
+    _demo_locked_count = len(module_groups) - _demo_module_limit if _is_demo else 0
+    _visible_groups = module_groups[:_demo_module_limit] if _is_demo else module_groups
+    _section_label = (
+        f"3 Modules &bull; 30 Video Quizzes &bull; Demo Preview"
+        if _is_demo else
+        "10 Modules &bull; 100 Video Quizzes"
+    )
+    st.markdown(f"<div class='q-section-title'><span>📝 Module Assessments</span><span style='font-size:0.8rem;color:var(--q-text-3);font-weight:500;'>{_section_label}</span></div>", unsafe_allow_html=True)
 
     cols = st.columns(2, gap="medium")
-    for i, grp in enumerate(module_groups):
+    for i, grp in enumerate(_visible_groups):
         sts = _get_quiz_statuses(grp["keys"], all_quizzes, completed_levels)
         passed = sum(1 for s in sts if s["status"] == "passed")
         total = len(sts)
@@ -548,6 +560,24 @@ def render_dashboard(user_info):
                 st.session_state.active_module_id = grp["prefix"]
                 st.session_state.edu_test_state = "module_hub"
                 st.rerun()
+
+    # Demo-only: locked teaser card for hidden modules 4–10
+    if _is_demo and _demo_locked_count > 0:
+        with cols[len(_visible_groups) % 2]:
+            st.markdown(textwrap.dedent(f"""
+<div class="mod-card" style="opacity:0.55;border-style:dashed;cursor:default;">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<div class="mod-card-icon">🔒</div>
+<span style='color:var(--q-warn);font-size:0.7rem;font-weight:800;'>COMING SOON</span>
+</div>
+<div class="mod-card-title">+{_demo_locked_count} More Modules</div>
+<div class="mod-card-progress">Modules 4–10 — Sign up to unlock</div>
+<div class="mod-card-bar-bg">
+<div class="mod-card-bar-fill" style="width:0%;background:var(--q-border);"></div>
+</div>
+</div>
+"""), unsafe_allow_html=True)
+            st.button("🔒 Locked — Sign Up to Unlock", key="demo_locked_modules_btn", disabled=True, use_container_width=True)
 
     # ── Market News + Sidebar ────────────────────────────────────
     st.markdown("<div style='margin-top:28px;'></div>", unsafe_allow_html=True)
@@ -661,6 +691,12 @@ def render_dashboard(user_info):
 def render_module_hub(user_info):
     prefix = st.session_state.get("active_module_id") or "module_1"
     mod_num = _extract_module_num(prefix)
+    # Demo guard: prevent viewing modules 4+
+    if user_info.get("username") == "demo_guest" and mod_num > 3:
+        st.session_state.active_module_id = "module_1"
+        st.session_state.edu_test_state = "dashboard"
+        st.rerun()
+        return
 
     # Sponsor / Ad slot: PhonePe for modules 6-10, Groww for modules 1-5
     ad_slot = "module_hub_phonepe" if mod_num >= 6 else "module_hub_top"
@@ -798,6 +834,14 @@ def render_module_hub(user_info):
 def render_taking_test(user_info):
     all_quizzes = _load_all_quizzes()
     mod_id = st.session_state.get("active_quiz_module_id", list(all_quizzes.keys())[0] if all_quizzes else "module_1_v1")
+    # Demo guard: prevent taking quizzes from modules 4+
+    if user_info.get("username") == "demo_guest":
+        test_m_num = _extract_module_num(_get_module_prefix(mod_id))
+        if test_m_num > 3:
+            st.session_state.active_quiz_module_id = "module_1_v1"
+            st.session_state.edu_test_state = "dashboard"
+            st.rerun()
+            return
     quiz_data = all_quizzes.get(mod_id, list(all_quizzes.values())[0] if all_quizzes else {})
     questions_list = quiz_data.get("questions", [])
     q_count = len(questions_list)

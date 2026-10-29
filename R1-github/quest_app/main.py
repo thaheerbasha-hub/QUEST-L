@@ -44,6 +44,7 @@ if not st.session_state.authenticated:
 # ── User is authenticated — set up their data directory ──────────────────────
 _user_info = st.session_state.user_info
 _username = _user_info["username"]
+_is_demo_user = _username == "demo_guest"
 
 # Upsert the active account without replacing any other remembered accounts.
 if st.session_state.get("remember_me", True) and _username != "demo_guest":
@@ -137,6 +138,12 @@ if st.session_state.get("just_logged_in"):
 else:
     # On page refresh or direct navigation, strictly read page from URL query params
     _early_page = st.query_params.get("page", "Overview")
+if _is_demo_user:
+    _demo_pages = {"Learning Path", "Library", "Virtual Trading", "MICHAEL", "Settings"}
+    st.query_params["workspace"] = "education"
+    if _early_page not in _demo_pages:
+        _early_page = "Learning Path"
+        st.query_params["page"] = _early_page
 if _early_page == "AddAccount":
     from login_page import render_add_account_page
     render_add_account_page(st.query_params.get("return_to", "Overview"))
@@ -149,8 +156,10 @@ if _early_page == "Settings":
         st.query_params["page"] = edu_db.get_last_education_section() if _ws == "education" else edu_db.get_last_portfolio_section()
         st.rerun()
     st.sidebar.markdown("<div class='quest-nav-label'>Account</div>", unsafe_allow_html=True)
+    _settings_sections = ["Profile", "Theme"] if _is_demo_user else settings._SECTIONS
     _settings_section = st.sidebar.radio(
-        "Settings sections", settings._SECTIONS, key="settings_sidebar_section",
+        "Settings sections", _settings_sections,
+        key="settings_sidebar_section_demo" if _is_demo_user else "settings_sidebar_section",
         label_visibility="collapsed"
     )
     
@@ -235,7 +244,8 @@ def _render_profile_card(placeholder, user_info, username, avatar_markup, p_grow
     """, unsafe_allow_html=True)
 
 
-st.sidebar.markdown("""
+if not _is_demo_user:
+    st.sidebar.markdown("""
 <style>
 .st-key-sidebar_profile_wrap { position: relative; }
 .st-key-sidebar_profile_card_trigger {
@@ -249,36 +259,51 @@ st.sidebar.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-_profile_wrap = st.sidebar.container(key="sidebar_profile_wrap")
-with _profile_wrap:
-    _profile_placeholder = st.empty()
-    if st.button("Open Profile Card", key="sidebar_profile_card_trigger", use_container_width=True):
-        _show_sidebar_profile_dialog(_username)
-# BUG 2 FIX: Use real st.button() calls, NOT <a href> anchors.
-# Raw anchors cause a full page navigation → session is lost → user lands on login.
-# st.button() triggers a server-side rerun so the session is preserved.
-st.sidebar.markdown('<div class="quest-icon-btn-row">', unsafe_allow_html=True)
-if st.sidebar.button("⚙  Settings", key="sidebar_settings_btn", help="Open settings", use_container_width=True):
-    _ws = st.query_params.get("workspace", "professional")
-    st.session_state[f"nav_section_{_ws}_{_username}"] = None
-    st.session_state.nav_section = "⚙  Settings"
-    st.query_params["page"] = "Settings"
-    st.rerun()
-st.sidebar.markdown('</div>', unsafe_allow_html=True)
+    _profile_wrap = st.sidebar.container(key="sidebar_profile_wrap")
+    with _profile_wrap:
+        _profile_placeholder = st.empty()
+        if st.button("Open Profile Card", key="sidebar_profile_card_trigger", use_container_width=True):
+            _show_sidebar_profile_dialog(_username)
+    # BUG 2 FIX: Use real st.button() calls, NOT <a href> anchors.
+    # Raw anchors cause a full page navigation → session is lost → user lands on login.
+    # st.button() triggers a server-side rerun so the session is preserved.
+    st.sidebar.markdown('<div class="quest-icon-btn-row">', unsafe_allow_html=True)
+    if st.sidebar.button("⚙  Settings", key="sidebar_settings_btn", help="Open settings", use_container_width=True):
+        _ws = st.query_params.get("workspace", "professional")
+        st.session_state[f"nav_section_{_ws}_{_username}"] = None
+        st.session_state.nav_section = "⚙  Settings"
+        st.query_params["page"] = "Settings"
+        st.rerun()
+    st.sidebar.markdown('</div>', unsafe_allow_html=True)
+else:
+    # ── Demo sidebar top section: matches the normal sidebar order ─────────────
+    # 1. Settings button (top)
+    if st.sidebar.button("⚙  Settings", key="sidebar_settings_btn", help="Open settings", use_container_width=True):
+        st.query_params["page"] = "Settings"
+        st.query_params["workspace"] = "education"
+        st.rerun()
+    # 2. Profile card (read-only — no clickable overlay needed for demo)
+    _profile_placeholder = st.sidebar.empty()
+    _render_profile_card(_profile_placeholder, _user_info, _username, _avatar_markup, {})
+    # 3. "Switch to Professional" button (mirrors the workspace switcher)
+    if st.sidebar.button("💼 Switch to Professional Side", key="demo_switch_prof_btn", use_container_width=True):
+        st.toast("Sign up for a full account to access the professional portfolio tools!", icon="💼")
+        st.rerun()
 
 # FEATURE A: Update Profile Card with Growth Stat early (so it shows on all tabs)
-try:
-    if "_analysis_df" in st.session_state and "_analysis_summary" in st.session_state:
-        _tmp_df = st.session_state["_analysis_df"]
-        _tmp_sum = st.session_state["_analysis_summary"]
-    else:
-        _tmp_df = __import__("pandas").DataFrame()
-        _tmp_sum = {"total_value": 0.0}
-    
-    p_growth = get_portfolio_growth(_tmp_df, _tmp_sum)
-    _render_profile_card(_profile_placeholder, _user_info, _username, _avatar_markup, p_growth)
-except Exception:
-    pass
+if not _is_demo_user:
+    try:
+        if "_analysis_df" in st.session_state and "_analysis_summary" in st.session_state:
+            _tmp_df = st.session_state["_analysis_df"]
+            _tmp_sum = st.session_state["_analysis_summary"]
+        else:
+            _tmp_df = __import__("pandas").DataFrame()
+            _tmp_sum = {"total_value": 0.0}
+
+        p_growth = get_portfolio_growth(_tmp_df, _tmp_sum)
+        _render_profile_card(_profile_placeholder, _user_info, _username, _avatar_markup, p_growth)
+    except Exception:
+        pass
 
 try:
     _accounts = get_remembered_accounts()
@@ -295,17 +320,7 @@ for acc in [{"username": _username, "display_name": _user_info.get("display_name
         _merged_accounts.append(acc)
 
 _accounts = _merged_accounts
-if _username == "demo_guest":
-    # Quarantine the demo user: NO account switcher allowed.
-    st.sidebar.markdown(
-        f"""
-        <div style='padding: 10px 14px; background: rgba(255,255,255,0.05); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 1rem;'>
-            <div style='font-size: 0.9rem; font-weight: 600; color: var(--q-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>{_user_info.get('display_name', 'Demo User')}</div>
-            <div style='font-size: 0.75rem; color: var(--q-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'>@{_username}</div>
-        </div>
-        """, unsafe_allow_html=True
-    )
-else:
+if not _is_demo_user:
     _account_usernames = [account["username"] for account in _accounts]
     _account_labels = [f"{account['display_name']}  ·  @{account['username']}" for account in _accounts]
     _account_labels.append("+ Add account")
@@ -356,25 +371,26 @@ else:
 # Sync navigation with URL query parameters to support Back/Forward buttons
 _workspace = st.query_params.get("workspace", "professional")
 
-# --- Sidebar: Workspace / Environment Switcher (Portfolio vs Games & Education) ---
-st.sidebar.markdown("<div class='quest-nav-label'>Environment</div>", unsafe_allow_html=True)
-_ws_col1, _ws_col2 = st.sidebar.columns(2, gap="small")
-with _ws_col1:
-    _is_prof = (_workspace == "professional")
-    if st.button("💼 Portfolio", key="sidebar_switch_prof", type="primary" if _is_prof else "secondary", use_container_width=True):
-        if not _is_prof:
-            _last_prof = edu_db.get_last_portfolio_section()
-            st.query_params["workspace"] = "professional"
-            st.query_params["page"] = _last_prof
-            st.rerun()
-with _ws_col2:
-    _is_edu = (_workspace == "education")
-    if st.button("🎓 Education", key="sidebar_switch_edu", type="primary" if _is_edu else "secondary", use_container_width=True):
-        if not _is_edu:
-            _last_edu = edu_db.get_last_education_section()
-            st.query_params["workspace"] = "education"
-            st.query_params["page"] = _last_edu
-            st.rerun()
+if not _is_demo_user:
+    # --- Sidebar: Workspace / Environment Switcher (Portfolio vs Games & Education) ---
+    st.sidebar.markdown("<div class='quest-nav-label'>Environment</div>", unsafe_allow_html=True)
+    _ws_col1, _ws_col2 = st.sidebar.columns(2, gap="small")
+    with _ws_col1:
+        _is_prof = (_workspace == "professional")
+        if st.button("💼 Portfolio", key="sidebar_switch_prof", type="primary" if _is_prof else "secondary", use_container_width=True):
+            if not _is_prof:
+                _last_prof = edu_db.get_last_portfolio_section()
+                st.query_params["workspace"] = "professional"
+                st.query_params["page"] = _last_prof
+                st.rerun()
+    with _ws_col2:
+        _is_edu = (_workspace == "education")
+        if st.button("🎓 Education", key="sidebar_switch_edu", type="primary" if _is_edu else "secondary", use_container_width=True):
+            if not _is_edu:
+                _last_edu = edu_db.get_last_education_section()
+                st.query_params["workspace"] = "education"
+                st.query_params["page"] = _last_edu
+                st.rerun()
 
 if _workspace == "professional":
     _valid_pages = ["Overview", "Planner", "Analytics", "Projections", "Insights", "News", "Activity", "Chat", "MICHAEL", "Settings", "Shop"]
@@ -395,6 +411,15 @@ else:
     }
     _sidebar_title = "Games & Education"
     _default_page = edu_db.get_last_education_section()
+    if _is_demo_user:
+        _valid_pages = ["Learning Path", "Library", "Virtual Trading", "MICHAEL"]
+        _page_labels = {
+            "Learning Path": "🚀  Learning Path",
+            "Library": "📚  Knowledge Library",
+            "Virtual Trading": "📈  Virtual Trading",
+            "MICHAEL": "⚡  MICHAEL",
+        }
+        _default_page = "Learning Path"
 
 _query_page = st.query_params.get("page", _default_page)
 if _query_page == "Wallet":
@@ -451,6 +476,8 @@ _selected_label = st.sidebar.radio(
     on_change=_on_nav_change,
     label_visibility="collapsed",
 )
+if _is_demo_user:
+    st.sidebar.button("🎖️  Badges — Coming Soon", disabled=True, use_container_width=True)
 
 _nav_fired = st.session_state.pop("_nav_clicked", False)
 clicked_page = next((p for p, l in _page_labels.items() if l == _selected_label), None) if _selected_label else None
@@ -472,7 +499,8 @@ if section != _query_page:
     st.query_params["workspace"] = _workspace
     st.rerun()
 
-st.sidebar.markdown("""
+if not _is_demo_user:
+    st.sidebar.markdown("""
 <style>
 .st-key-sidebar_goto_shop button[kind="primary"] {
     background: linear-gradient(135deg, rgba(93, 202, 165, 0.22), rgba(56, 189, 248, 0.22)) !important;
@@ -483,16 +511,16 @@ st.sidebar.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
-st.sidebar.markdown("---")
-is_shop_active = (_query_page == "Shop")
-if st.sidebar.button("🛒  Shop", key="sidebar_goto_shop", type="primary" if is_shop_active else "secondary", use_container_width=True):
-    if not is_shop_active:
-        st.query_params["page"] = "Shop"
+    st.sidebar.markdown("---")
+    is_shop_active = (_query_page == "Shop")
+    if st.sidebar.button("🛒  Shop", key="sidebar_goto_shop", type="primary" if is_shop_active else "secondary", use_container_width=True):
+        if not is_shop_active:
+            st.query_params["page"] = "Shop"
+            st.rerun()
+    if st.sidebar.button("🏠  Main Hub", key="sidebar_goto_hub", use_container_width=True):
+        st.query_params["page"] = "Hub"
         st.rerun()
-if st.sidebar.button("🏠  Main Hub", key="sidebar_goto_hub", use_container_width=True):
-    st.query_params["page"] = "Hub"
-    st.rerun()
-st.sidebar.markdown("---")
+    st.sidebar.markdown("---")
 
 # Streamlit owns the real collapse state; this replaces only its visible trigger.
 st.markdown("""
@@ -525,16 +553,17 @@ except Exception:
 # The sidebar panel shows the same matched articles as compact cards.
 # Both use the same st.cache_data-backed fetch -- no double API call.
 import notifications
-try:
-    notifications.render_sidebar_news_panel(current_assets)
-except Exception:
-    pass
-try:
-    notifications.render_live_news_alerts(current_assets, username=_username)
-except Exception:
-    pass
+if not _is_demo_user:
+    try:
+        notifications.render_sidebar_news_panel(current_assets)
+    except Exception:
+        pass
+    try:
+        notifications.render_live_news_alerts(current_assets, username=_username)
+    except Exception:
+        pass
 
-if _workspace == "education":
+if _workspace == "education" and not _is_demo_user:
     try:
         notifications.render_education_alerts(username=_username)
     except Exception:
@@ -901,4 +930,3 @@ elif section == "Leaderboard":
 elif section in ("Shop", "Wallet"):
     import quest_app.tabs.shop as tb
     tb.render(_user_info)
-

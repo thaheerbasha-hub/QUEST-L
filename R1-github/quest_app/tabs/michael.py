@@ -631,6 +631,65 @@ def render(df=None, summary=None, current_assets=None, _user_info=None,
         else:
             L.append("No portfolio data yet.")
 
+        L += ["", "=== EDUCATION & PROGRESS ==="]
+        try:
+            import edu_db
+            prog = edu_db.load_progress()
+            xp = prog.get("total_xp", 0)
+            completed_levels = prog.get("completed_levels", [])
+            lvl_info = edu_db.get_level_info(xp)
+            quizzes_passed = len(completed_levels)
+            modules_completed = sum(1 for m_i in range(1, 11) if sum(1 for k in completed_levels if k.startswith(f"module_{m_i}_")) >= 10)
+            L += [
+                f"Total XP: {xp:,} XP | Rank: {lvl_info.get('level_name', 'Student')} (Level {lvl_info.get('level', 1)})",
+                f"Video Quizzes Passed: {quizzes_passed}/100 | Modules Completed: {modules_completed}/10",
+                f"Virtual Paper Trading Cash: Rs.{float(prog.get('virtual_balance', 15000.0)):,.2f}",
+            ]
+        except Exception:
+            L.append("Education progress unavailable.")
+
+        L += ["", "=== QUANTITATIVE RISK METRICS (with plain-English meaning) ==="]
+        try:
+            # 1. EWMA Volatility
+            vol_ann = summary.get("portfolio_volatility", 0.0)
+            vol_str = f"{vol_ann * 100:.2f}% ann" if (vol_ann is not None and not np.isnan(vol_ann)) else "N/A"
+            L.append(f"• EWMA Volatility ({vol_str}): Expected magnitude of price swings over time; higher percentage means wider daily swings.")
+
+            # 2. Portfolio Beta
+            beta_val = 1.0
+            if not df.empty and "Beta" in df.columns and "Current Value (₹)" in df.columns:
+                tv_val = df["Current Value (₹)"].sum()
+                if tv_val > 0:
+                    beta_val = (df["Beta"].astype(float) * df["Current Value (₹)"].astype(float)).sum() / tv_val
+            L.append(f"• Portfolio Beta ({beta_val:.2f}): Sensitivity to NIFTY 50 benchmark moves; >1.0 means more volatile than market, <1.0 means defensive.")
+
+            # 3. Sharpe Ratio
+            sr_val = 0.0
+            if not df.empty and "Sharpe" in df.columns and "Current Value (₹)" in df.columns:
+                tv_val = df["Current Value (₹)"].sum()
+                if tv_val > 0:
+                    sr_val = (df["Sharpe"].astype(float) * df["Current Value (₹)"].astype(float)).sum() / tv_val
+            L.append(f"• Sharpe Ratio ({sr_val:.2f}): Excess return generated per unit of total risk; >1.0 denotes solid risk-adjusted compensation.")
+
+            # 4. 1-Day 95% VaR
+            var_val = 2.0
+            if not df.empty and "1d VaR %" in df.columns and "Current Value (₹)" in df.columns:
+                tv_val = df["Current Value (₹)"].sum()
+                if tv_val > 0:
+                    var_val = (df["1d VaR %"].astype(float) * df["Current Value (₹)"].astype(float)).sum() / tv_val
+            L.append(f"• 1-Day 95% VaR ({var_val:.2f}%): Maximum expected 1-day percentage loss under normal market conditions with 95% confidence.")
+
+            # 5. PCA Concentration
+            pca_ev = summary.get("pca_explained_var")
+            if pca_ev is not None and len(pca_ev) > 0:
+                pc1_str = f"{pca_ev[0] * 100:.1f}% explained by PC1"
+            else:
+                hhi = summary.get("concentration_hhi", 0.0)
+                pc1_str = f"HHI {hhi:.3f}"
+            L.append(f"• PCA Concentration ({pc1_str}): Proportion of portfolio variance driven by a single dominant market factor or top asset.")
+        except Exception:
+            L.append("Risk metrics unavailable.")
+
         L += ["", "=== EWMA STATE ==="]
         try:
             from adaptive_engine import _load_state as _ae
@@ -739,10 +798,13 @@ def render(df=None, summary=None, current_assets=None, _user_info=None,
             "You are MICHAEL, the daily intelligence assistant inside QUEST — a personal "
             "investing + planning app for an Indian retail investor. "
             "You can see the user's live portfolio, risk metrics, predictions, news sentiment, "
-            "AND their planner: upcoming calendar events and open to-do tasks. "
+            "education progress, and their planner: upcoming calendar events and open to-do tasks. "
             "Behave like a proactive personal assistant: connect their schedule to their money — "
             "flag upcoming results/holidays, remind them of open tasks, relate market events to their holdings, "
             "and suggest what to focus on today. "
+            "STRICT GUARDRAIL & COMPLIANCE RULE: You are purely an educator and quantitative mentor, NOT a financial advisor. "
+            "Explain concepts and the user's own numbers clearly. NEVER say what to buy or sell, never give buy, sell, or hold "
+            "recommendations, and never provide stock tips, price targets, or trade calls. "
             "You are knowledgeable about Indian markets, NSE/BSE stocks, ETFs, and quantitative finance. "
             "PERSONALITY: you are a sharp, seasoned Mumbai trading-desk veteran — quick-witted, a little blunt, "
             "with dry humour, but genuinely in the user's corner. Open with one short line that fits the time of "
@@ -852,9 +914,12 @@ def render(df=None, summary=None, current_assets=None, _user_info=None,
         SYS = (
             "You are MICHAEL, the daily intelligence assistant inside QUEST — a personal "
             "investing + planning app for an Indian retail investor. "
-            "You can see the user's live portfolio, risk metrics, predictions, news sentiment, and planner "
-            "(events + to-dos). You ALSO have live tools: get_quote and get_index. ALWAYS call get_quote or get_index when asked about a "
-            "specific stock, index, or recommendations. "
+            "You can see the user's live portfolio, risk metrics, predictions, news sentiment, education progress, and planner "
+            "(events + to-dos). You ALSO have live tools: get_quote and get_index. Call get_quote or get_index when asked about "
+            "current live quotes or technical indicators for a specific stock or index. "
+            "STRICT GUARDRAIL & COMPLIANCE RULE: You are purely an educator and quantitative mentor, NOT a financial advisor. "
+            "Explain concepts and the user's own numbers clearly. NEVER say what to buy or sell, never give buy, sell, or hold "
+            "recommendations, and never provide stock tips, price targets, or trade calls. "
             "PERSONALITY: a sharp, seasoned Mumbai trading-desk veteran — quick-witted, a little blunt, dry humour, "
             "genuinely in the user's corner. Open with one short line fitting the time of day and market mood, then "
             "get straight to the point. Direct and honest. Ground every answer in the data/tools. "
@@ -946,16 +1011,12 @@ def render(df=None, summary=None, current_assets=None, _user_info=None,
         if not q:
             return
         st.session_state.michael_pending = None
-        raw = _m_ask(q, _m_context())
+        ctx = _m_context()
+        raw = _m_ask(q, ctx)
         ts = datetime.now().strftime("%H:%M")
-        if raw == "__BAD_KEY__":
-            txt = ("MICHAEL is unavailable — the API key is invalid or not authorised. "
-                   "Check the key in the app's secrets or settings.")
-        elif raw.startswith("__RATE_LIMIT__"):
-            detail = raw[len("__RATE_LIMIT__"):].strip()
-            txt = f"MICHAEL hit a temporary API rate limit. Please give it a moment and try again.\n\nDetails: {detail}"
-        else:
-            txt = raw
+
+        import guardrail
+        txt = guardrail.safe_reply(raw, user_context=ctx, api_key=api_key, provider=provider)
 
         active_session.setdefault("messages", []).append({"role": "michael", "text": txt, "ts": ts})
         active_session["updated_at"] = datetime.now().isoformat()
