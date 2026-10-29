@@ -81,54 +81,36 @@ def _result_panel_html(res: dict, practice: bool = False) -> str:
 </div>
 """
 
-# ── Reusable Option Card component ─────────────────────────────────────────
+# ── Interactive Option Card component ──────────────────────────────────────
 
-def option_cards_html(choices: list, btn_key_prefix: str) -> str:
-    """Render three answer-option cards as a single HTML grid block.
+def render_option_cards(choices: list, btn_key_prefix: str) -> int | None:
+    """Render answer-option cards using Streamlit columns and native buttons.
 
     Each card contains:
       - small uppercase label (OPTION A / B / C)
       - bold title
       - muted description
-      - a styled proxy <button> that clicks the hidden real st.button
+      - a native full-width Streamlit button
 
-    The real Streamlit buttons (keyed btn_key_prefix_0/1/2) must be rendered
-    AFTER this HTML block with ``st.button(..., key=btn_key_prefix+'_'+str(i))``
-    so Streamlit's Python-side click handler fires normally.
-
-    Args:
-        choices:        list of dicts with keys 't' (title) and 'd' (description)
-        btn_key_prefix: unique prefix so multiple call-sites don't collide
+    Returns:
+        int index of clicked option (0, 1, 2) or None if no button was clicked.
     """
-    cards = ""
-    for i, ch in enumerate(choices):
+    cols = st.columns(len(choices), gap="medium")
+    clicked_idx = None
+    for i, (col, ch) in enumerate(zip(cols, choices)):
         letter = chr(65 + i)
-        cards += f"""
-        <div class="td-oc">
-          <div class="td-oc-label">OPTION {letter}</div>
-          <div class="td-oc-title">{ch['t']}</div>
-          <div class="td-oc-desc">{ch['d']}</div>
-          <button class="td-oc-btn"
-            onclick="
-              var realBtn = window.parent.document.querySelector(
-                'button[data-testid=stBaseButton-secondary][kind=secondary]' +
-                '[aria-label=\'Select Option {letter}\']'
-              );
-              if (!realBtn) {{
-                realBtn = Array.from(
-                  window.parent.document.querySelectorAll('button')
-                ).find(b => b.innerText.trim() === 'Select Option {letter}');
-              }}
-              if (realBtn) realBtn.click();
-            "
-          >Select Option {letter}</button>
-        </div>"""
-
-    return f"""
-<div class="td-options-grid">
-  {cards}
+        with col:
+            with st.container(border=True):
+                st.html(f"""
+<div class="td-oc-card">
+  <div class="td-oc-label">OPTION {letter}</div>
+  <div class="td-oc-title">{ch['t']}</div>
+  <div class="td-oc-desc">{ch['d']}</div>
 </div>
-"""
+""")
+                if st.button(f"Select Option {letter}", key=f"{btn_key_prefix}_{i}", use_container_width=True):
+                    clicked_idx = i
+    return clicked_idx
 
 # ── Practice-mode state helpers ──────────────────────────────────────────────
 
@@ -197,40 +179,34 @@ PAGE_CSS = """
 .td-snap-row span { color:var(--q-text-3); }
 .td-snap-row b { color:var(--q-text); }
 
-/* ── Self-contained Option Card Grid ── */
-.td-options-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-    max-width: 1120px;
-    margin: 0 auto;
-    align-items: stretch;
-}
-
-/* Individual option card — achievement-card aesthetic */
-.td-oc {
-    display: flex;
-    flex-direction: column;
-    background: var(--q-surface-2);
-    border: 1px solid var(--q-border-2);
-    border-radius: 16px;
-    padding: 22px 20px 20px;
-    box-sizing: border-box;
+/* ── Option Card Grid & Containers ── */
+div[data-testid="stColumn"] div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--q-surface-2) !important;
+    border: 1px solid var(--q-border-2) !important;
+    border-radius: 16px !important;
+    padding: 20px 18px !important;
     transition: border-color .22s var(--q-ease),
                 box-shadow     .22s var(--q-ease),
                 background     .22s var(--q-ease),
-                transform      .22s var(--q-ease);
-    cursor: pointer;
+                transform      .22s var(--q-ease) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    height: 100% !important;
 }
 
-/* Hover: accent border + neon aura (theme-reactive) */
-.td-oc:hover {
-    border-color: var(--q-accent);
-    background: var(--q-accent-weak);
+div[data-testid="stColumn"] div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    border-color: var(--q-accent) !important;
     box-shadow: 0 0 0 1px var(--q-accent),
                 0 10px 32px -4px var(--q-accent-weak),
-                0 0 24px -2px var(--q-accent-weak);
-    transform: translateY(-3px);
+                0 0 24px -2px var(--q-accent-weak) !important;
+    transform: translateY(-2px);
+}
+
+.td-oc-card {
+    display: flex;
+    flex-direction: column;
+    min-height: 140px;
 }
 
 /* Option label — muted uppercase pill (like "PORTFOLIO" in badge cards) */
@@ -240,7 +216,7 @@ PAGE_CSS = """
     letter-spacing: 1.4px;
     text-transform: uppercase;
     color: var(--q-text-3);
-    margin-bottom: 10px;
+    margin-bottom: 8px;
 }
 
 /* Bold primary title */
@@ -256,48 +232,15 @@ PAGE_CSS = """
 .td-oc-desc {
     font-size: 12px;
     color: var(--q-text-2);
-    line-height: 1.65;
-    flex: 1;          /* fills remaining space so button is always at bottom */
-    margin-bottom: 20px;
+    line-height: 1.6;
+    margin-bottom: 16px;
+    flex: 1;
 }
 
-/* Full-width select button — dark filled, inside card padding */
-.td-oc-btn {
-    display: block;
-    width: 100%;
-    padding: 10px 14px;
-    border-radius: 9px;
-    border: 1px solid var(--q-border-2);
-    background: var(--q-surface);
-    color: var(--q-text);
-    font-family: inherit;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background .18s var(--q-ease),
-                color       .18s var(--q-ease),
-                border-color .18s var(--q-ease),
-                box-shadow  .18s var(--q-ease);
-    margin-top: auto;
-    text-align: center;
-}
-
-.td-oc:hover .td-oc-btn,
-.td-oc-btn:hover {
-    background: var(--q-accent);
-    color: var(--q-on-accent);
-    border-color: var(--q-accent);
-    box-shadow: 0 4px 16px var(--q-accent-weak);
-}
-
-/* Hide the real Streamlit proxy buttons visually, keep them in DOM for JS clicks */
-.td-hidden-btns {
-    height: 0 !important;
-    overflow: hidden !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
+div[data-testid="stColumn"] div[data-testid="stVerticalBlockBorderWrapper"] button {
+    border-radius: 9px !important;
+    font-weight: 600 !important;
+    transition: all .18s var(--q-ease) !important;
 }
 
 .td-result { padding:20px 25px 25px; border-top:1px solid var(--q-border); }
@@ -397,34 +340,25 @@ def _render_practice(prog: dict):
     prac_result = st.session_state.get("td_practice_result")
 
     if prac_result is None:
-        # ── Self-contained option card grid ──
-        st.markdown(
-            option_cards_html(case_pub["choices"], f"pbtn_{case_idx}"),
-            unsafe_allow_html=True,
-        )
-        # Hidden real Streamlit buttons (clicked via JS proxy inside the cards)
-        with st.container():
-            st.markdown('<div class="td-hidden-btns">', unsafe_allow_html=True)
-            for i in range(len(case_pub["choices"])):
-                if st.button("Select Option " + chr(65 + i), key=f"pbtn_{case_idx}_{i}", use_container_width=True):
-                    full_choices = case_full["choices"]
-                    chosen = full_choices[i]
-                    is_correct = chosen.get("c", False)
-                    correct_index = next((n for n, c in enumerate(full_choices) if c.get("c")), -1)
-                    result = {
-                        "is_correct": is_correct,
-                        "correct_index": correct_index,
-                        "explanation": chosen.get("why", ""),
-                        "all_explanations": [c.get("why", "") for c in full_choices],
-                        "takeaway": case_full["takeaway"],
-                    }
-                    answers[case_pub["id"]] = {"chosen": i, "is_correct": is_correct}
-                    if is_correct:
-                        st.session_state.td_practice_correct = correct_count + 1
-                    st.session_state.td_practice_answers = answers
-                    st.session_state.td_practice_result = result
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        chosen_opt = render_option_cards(case_pub["choices"], f"pbtn_{case_idx}")
+        if chosen_opt is not None:
+            full_choices = case_full["choices"]
+            chosen = full_choices[chosen_opt]
+            is_correct = chosen.get("c", False)
+            correct_index = next((n for n, c in enumerate(full_choices) if c.get("c")), -1)
+            result = {
+                "is_correct": is_correct,
+                "correct_index": correct_index,
+                "explanation": chosen.get("why", ""),
+                "all_explanations": [c.get("why", "") for c in full_choices],
+                "takeaway": case_full["takeaway"],
+            }
+            answers[case_pub["id"]] = {"chosen": chosen_opt, "is_correct": is_correct}
+            if is_correct:
+                st.session_state.td_practice_correct = correct_count + 1
+            st.session_state.td_practice_answers = answers
+            st.session_state.td_practice_result = result
+            st.rerun()
     else:
         # Show result panel
         st.markdown(_result_panel_html(prac_result, practice=True), unsafe_allow_html=True)
@@ -604,21 +538,12 @@ def render(user_info: dict):
     st.write("")
 
     if not st.session_state.td_result:
-        # ── Self-contained option card grid ──
-        st.markdown(
-            option_cards_html(case["choices"], f"btn_{current_case_idx}"),
-            unsafe_allow_html=True,
-        )
-        # Hidden real Streamlit buttons (clicked via JS proxy inside the cards)
-        with st.container():
-            st.markdown('<div class="td-hidden-btns">', unsafe_allow_html=True)
-            for i in range(len(case["choices"])):
-                if st.button("Select Option " + chr(65 + i), key=f"btn_{current_case_idx}_{i}", use_container_width=True):
-                    res = tax_detective_db.answer_case(current_case_idx, i)
-                    st.session_state.td_attempt = tax_detective_db.get_current_attempt()
-                    st.session_state.td_result = res
-                    st.rerun()
-            st.markdown('</div>', unsafe_allow_html=True)
+        chosen_opt = render_option_cards(case["choices"], f"btn_{current_case_idx}")
+        if chosen_opt is not None:
+            res = tax_detective_db.answer_case(current_case_idx, chosen_opt)
+            st.session_state.td_attempt = tax_detective_db.get_current_attempt()
+            st.session_state.td_result = res
+            st.rerun()
     else:
         st.markdown(_result_panel_html(st.session_state.td_result, practice=False), unsafe_allow_html=True)
         st.write("")
